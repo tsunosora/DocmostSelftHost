@@ -1,0 +1,86 @@
+upstream docmost_backend {
+    server docmost-app:3000;
+    keepalive 32;
+}
+
+server {
+    listen 80;
+    server_name your-IP localhost;
+
+    # Security Headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "no-referrer-when-downgrade" always;
+    add_header Content-Security-Policy "default-src 'self' http: https: data: blob: 'unsafe-inline' 'unsafe-eval'" always;
+
+    # Main Application
+    location / {
+        proxy_pass http://docmost_backend;
+        proxy_http_version 1.1;
+        
+        # Proxy Headers
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Port $server_port;
+        
+        # WebSocket Support
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        
+        # Timeout Settings
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+        proxy_next_upstream error timeout invalid_header http_500 http_502 http_503 http_504;
+        
+        # Buffer Settings
+        proxy_buffering on;
+        proxy_buffer_size 128k;
+        proxy_buffers 4 256k;
+        proxy_busy_buffers_size 256k;
+    }
+
+    # API Endpoints
+    location /api/ {
+        proxy_pass http://docmost_backend;
+        proxy_http_version 1.1;
+        
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # Disable caching for API
+        proxy_cache_bypass 1;
+        proxy_no_cache 1;
+        
+        # Timeout for API calls
+        proxy_connect_timeout 30s;
+        proxy_send_timeout 30s;
+        proxy_read_timeout 30s;
+    }
+
+    # Health Check
+    location /health {
+        proxy_pass http://docmost_backend/health;
+        access_log off;
+    }
+
+    # Static Files with Caching
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot|pdf|doc|docx)$ {
+        proxy_pass http://docmost_backend;
+        
+        # Cache static files
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        add_header Vary Accept-Encoding;
+    }
+
+    # Logging
+    access_log /var/log/nginx/docmost_access.log;
+    error_log /var/log/nginx/docmost_error.log warn;
+}
